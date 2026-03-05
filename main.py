@@ -15,6 +15,7 @@ app.include_router(contact_router)
 app.include_router(inbox_router)
 app.include_router(blog_router)
 
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +48,6 @@ app.include_router(coupons_router)
 def root():
     return {'status': 'ok', 'service': 'The Cosmic Connect API'}
 
-@app.get('/health')
+@app.get("/health")
 def health():
-    return {'status': 'healthy'}
+    return {"status": "ok", "service": "cosmic-backend"}

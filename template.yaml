@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: The Cosmic Connect Backend
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT:       !Ref Environment
+        AWS_REGION_NAME:   ap-south-1
+        PRODUCTS_TABLE:    !Sub "products-${Environment}"
+        ORDERS_TABLE:      !Sub "orders-${Environment}"
+        COUPONS_TABLE:     !Sub "coupons-${Environment}"
+        BLOG_TABLE:        !Sub "blog-${Environment}"
+        INBOX_TABLE:       !Sub "inbox-${Environment}"
+
+Resources:
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:  !Sub "backend-${Environment}"
+      CodeUri:       .
+      Handler:       lambda_handler.handler
+      Runtime:       python3.12
+      Events:
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            Path:   /{proxy+}
+            Method: ANY
+            ApiId:  !Ref HttpApi
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            Path:   /
+            Method: ANY
+            ApiId:  !Ref HttpApi
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "api-${Environment}"
+      CorsConfiguration:
+        AllowOrigins:
+          - "https://arkasuryacrystals.com"
+          - "https://www.arkasuryacrystals.com"
+          - "https://staging.arkasuryacrystals.com"
+          - "https://dev.arkasuryacrystals.com"
+          - "https://admin.arkasuryacrystals.com"
+          - "http://localhost:3000"
+          - "http://localhost:3001"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub "https://${HttpApi}.execute-api.ap-south-1.amazonaws.com"

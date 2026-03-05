@@ -62,3 +62,10 @@ Dockerfile
 Dockerfile.*
 .dockerignore
 docker-compose*.yml
+
+
+migrate_and_seed.py
+verify_migration.py
+migration_progress.txt
+missing_images.txt
+
