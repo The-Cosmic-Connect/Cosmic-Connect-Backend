@@ -6,12 +6,10 @@ import boto3, os, uuid
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
 class ProductSpec(BaseModel):
-    """Single accordion item — Material, Dimension, Weight, Grade etc."""
     title: str
     value: str
 
 class ProductOption(BaseModel):
-    """Variant option — e.g. Size: [Small, Medium, Large]"""
     name: str
     type: str   # "dropdown" | "color" | "radio"
     choices: List[str] = []
@@ -24,29 +22,28 @@ class Product(BaseModel):
     slug:             str
     sku:              Optional[str]  = ""
     description:      str            = ""
-    collections:      List[str]      = []   # replaces single 'category'
+    collections:      List[str]      = []
     priceINR:         float          = 0
     priceUSD:         float          = 0
-    originalPriceINR: float          = 0    # strikethrough price
+    originalPriceINR: float          = 0
     originalPriceUSD: float          = 0
-    discountValue:    float          = 0    # fixed INR discount amount
-    ribbon:           Optional[str]  = ""   # badge: "Sale", "New", "Bestseller"
+    discountValue:    float          = 0
+    ribbon:           Optional[str]  = ""
     weight:           float          = 0
-    cost:             float          = 0    # cost price (internal)
+    cost:             float          = 0
     brand:            str            = "The Cosmic Connect"
     images:           List[str]      = []
-    specs:            List[ProductSpec] = []  # accordion details
-    options:          List[ProductOption] = [] # variants
+    specs:            List[ProductSpec] = []
+    options:          List[ProductOption] = []
     tags:             List[str]      = []
     inStock:          bool           = True
-    stock:            int            = 0    # 0 = unlimited/untracked
+    stock:            int            = 0
     published:        bool           = True
     featured:         bool           = False
     createdAt:        Optional[str]  = None
     updatedAt:        Optional[str]  = None
 
 class ProductCreate(BaseModel):
-    """Used for POST /products — id and timestamps auto-generated"""
     name:             str
     slug:             str
     sku:              Optional[str]  = ""
@@ -71,7 +68,6 @@ class ProductCreate(BaseModel):
     featured:         bool           = False
 
 class ProductUpdate(BaseModel):
-    """Used for PUT /products/{id} — all fields optional"""
     name:             Optional[str]  = None
     slug:             Optional[str]  = None
     sku:              Optional[str]  = None
@@ -110,7 +106,6 @@ def get_coupons_table():
     return db.Table(os.getenv('COUPONS_TABLE', 'coupons-dev'))
 
 def serialize(p: dict) -> dict:
-    """Convert DynamoDB Decimals to float/int for JSON response."""
     from decimal import Decimal
     out = {}
     for k, v in p.items():
@@ -125,6 +120,17 @@ def serialize(p: dict) -> dict:
             out[k] = v
     return out
 
+def _scan_all(table, **kwargs) -> List[dict]:
+    """Paginate through ALL DynamoDB scan results."""
+    items = []
+    resp = table.scan(**kwargs)
+    items.extend(resp.get('Items', []))
+    while 'LastEvaluatedKey' in resp:
+        kwargs['ExclusiveStartKey'] = resp['LastEvaluatedKey']
+        resp = table.scan(**kwargs)
+        items.extend(resp.get('Items', []))
+    return items
+
 def create_product(data: ProductCreate) -> dict:
     now = datetime.utcnow().isoformat()
     item = {
@@ -133,7 +139,6 @@ def create_product(data: ProductCreate) -> dict:
         'updatedAt': now,
         **data.model_dump(),
     }
-    # Convert specs/options to plain dicts for DynamoDB
     item['specs']   = [s.model_dump() for s in data.specs]
     item['options'] = [o.model_dump() for o in data.options]
     get_table().put_item(Item=item)
@@ -145,10 +150,17 @@ def get_product_by_id(product_id: str) -> Optional[dict]:
     return serialize(item) if item else None
 
 def get_product_by_slug(slug: str) -> Optional[dict]:
-    r = get_table().scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr('slug').eq(slug)
-    )
-    items = r.get('Items', [])
+    """Use slug-index GSI for efficient lookup."""
+    try:
+        r = get_table().query(
+            IndexName='slug-index',
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('slug').eq(slug)
+        )
+        items = r.get('Items', [])
+    except Exception:
+        # Fallback to scan if GSI not ready
+        items = _scan_all(get_table(),
+            FilterExpression=boto3.dynamodb.conditions.Attr('slug').eq(slug))
     return serialize(items[0]) if items else None
 
 def list_products(
@@ -157,6 +169,7 @@ def list_products(
     search: Optional[str] = None,
     featured_only: bool = False,
 ) -> List[dict]:
+    """Scan ALL products with full DynamoDB pagination."""
     filters = []
     if published_only:
         filters.append(boto3.dynamodb.conditions.Attr('published').eq(True))
@@ -169,8 +182,12 @@ def list_products(
     for f in filters[1:]:
         fe = fe & f
 
-    r = get_table().scan(FilterExpression=fe) if fe else get_table().scan()
-    items = [serialize(i) for i in r.get('Items', [])]
+    scan_kwargs = {}
+    if fe:
+        scan_kwargs['FilterExpression'] = fe
+
+    raw_items = _scan_all(get_table(), **scan_kwargs)
+    items = [serialize(i) for i in raw_items]
 
     if search:
         s = search.lower()
@@ -179,7 +196,11 @@ def list_products(
                  s in i.get('description', '').lower() or
                  any(s in t.lower() for t in i.get('tags', []))]
 
+    # Sort: featured first, then by createdAt desc
+    items.sort(key=lambda x: (not x.get('featured', False), x.get('createdAt', '')), reverse=False)
     items.sort(key=lambda x: x.get('createdAt', ''), reverse=True)
+    items.sort(key=lambda x: not x.get('featured', False))
+
     return items
 
 def update_product(product_id: str, data: ProductUpdate) -> Optional[dict]:
