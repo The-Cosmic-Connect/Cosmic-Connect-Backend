@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import boto3, os, uuid
+from boto3.dynamodb.conditions import Attr, Key
 
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,16 @@ def serialize(p: dict) -> dict:
             out[k] = v
     return out
 
+# Aliases for backwards compatibility
+decimal_to_float = serialize
+
+def float_to_decimal(obj):
+    from decimal import Decimal
+    if isinstance(obj, float): return Decimal(str(obj))
+    if isinstance(obj, dict):  return {k: float_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):  return [float_to_decimal(i) for i in obj]
+    return obj
+
 def _scan_all(table, **kwargs) -> List[dict]:
     """Paginate through ALL DynamoDB scan results."""
     items = []
@@ -227,3 +238,47 @@ def update_product(product_id: str, data: ProductUpdate) -> Optional[dict]:
 
 def delete_product(product_id: str):
     get_table().delete_item(Key={'id': product_id})
+
+
+def list_products_page(
+    published_only: bool = True,
+    collection: Optional[str] = None,
+    search: Optional[str] = None,
+    featured_only: bool = False,
+    limit: int = 100,
+    last_key: Optional[dict] = None,
+) -> dict:
+    filters = []
+    if published_only:
+        filters.append(Attr('published').eq(True))
+    if featured_only:
+        filters.append(Attr('featured').eq(True))
+    if collection:
+        filters.append(Attr('collections').contains(collection))
+
+    fe = filters[0] if filters else None
+    for f in filters[1:]:
+        fe = fe & f
+
+    if search:
+        raw = _scan_all(get_table(), **({'FilterExpression': fe} if fe else {}))
+        items = [serialize(i) for i in raw]
+        s = search.lower()
+        items = [i for i in items if
+                 s in i.get('name', '').lower() or
+                 s in i.get('description', '').lower() or
+                 any(s in t.lower() for t in i.get('tags', []))]
+        items.sort(key=lambda x: not x.get('featured', False))
+        return {'products': items, 'total': len(items), 'nextKey': None}
+
+    scan_kwargs = {'Limit': limit}
+    if fe:
+        scan_kwargs['FilterExpression'] = fe
+    if last_key:
+        scan_kwargs['ExclusiveStartKey'] = last_key
+
+    resp  = get_table().scan(**scan_kwargs)
+    items = [serialize(i) for i in resp.get('Items', [])]
+    next_key = resp.get('LastEvaluatedKey')
+    items.sort(key=lambda x: not x.get('featured', False))
+    return {'products': items, 'total': len(items), 'nextKey': next_key}

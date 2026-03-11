@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from handlers.orders import router as orders_router
-from handlers.shop import products_router, coupons_router
+from handlers.shop import router as shop_router
 from handlers.contact import router as contact_router
 
 from handlers.blog import router as blog_router
@@ -40,8 +40,7 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(orders_router)
-app.include_router(products_router)
-app.include_router(coupons_router)
+app.include_router(shop_router)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get('/')

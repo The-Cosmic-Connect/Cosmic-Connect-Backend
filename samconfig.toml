@@ -4,11 +4,11 @@ version = 0.1
 stack_name = "backend-dev"
 resolve_s3 = true
 s3_prefix = "backend-dev"
-region = "ap-south-1"
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
 parameter_overrides = "Environment=\"dev\""
 image_repositories = []
+confirm_changeset = true
 
 [default.global.parameters]
 region = "ap-south-1"

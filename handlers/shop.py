@@ -3,7 +3,7 @@ from typing import Optional
 from models.product import (
     ProductCreate, ProductUpdate,
     create_product, get_product_by_id, get_product_by_slug,
-    list_products, update_product, delete_product,
+    list_products, list_products_page, update_product, delete_product,
     get_coupons_table, serialize,
 )
 from datetime import datetime
@@ -15,18 +15,23 @@ router = APIRouter(tags=['shop'])
 
 @router.get('/products')
 def get_products(
-    published_only: bool  = Query(True),
+    published_only: bool        = Query(True),
     collection:     Optional[str] = Query(None),
     search:         Optional[str] = Query(None),
-    featured_only:  bool  = Query(False),
+    featured_only:  bool        = Query(False),
+    limit:          int         = Query(100),
+    last_key:       Optional[str] = Query(None),
 ):
-    products = list_products(
+    import json
+    parsed_key = json.loads(last_key) if last_key else None
+    return list_products_page(
         published_only=published_only,
         collection=collection,
         search=search,
         featured_only=featured_only,
+        limit=limit,
+        last_key=parsed_key,
     )
-    return {'products': products, 'total': len(products)}
 
 @router.get('/products/slug/{slug}')
 def get_product_slug(slug: str):
